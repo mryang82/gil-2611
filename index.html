@@ -64,6 +64,8 @@ ul.recs>li{display:flex!important;gap:6px;align-items:flex-start}
 .rd{font-size:.8rem;color:var(--sea)}
 .rt{display:inline-block;margin-left:6px;font:600 .72rem var(--font);color:var(--est);white-space:nowrap}
 .rt.mine{color:var(--sea)}
+.toast{position:fixed;left:50%;bottom:84px;transform:translateX(-50%);background:rgba(20,24,28,.92);color:#fff;padding:10px 16px;border-radius:20px;font-size:.9rem;z-index:99;opacity:0;pointer-events:none;transition:opacity .2s;max-width:90vw;text-align:center}
+.toast.on{opacity:1}
 .maplist{margin:8px 0 0;padding:0;list-style:none;display:flex;flex-wrap:wrap;gap:4px 12px;font-size:.85rem}
 .maplist b{font-family:var(--mono);color:var(--sea);margin-right:2px}
 .maplinks{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
@@ -323,13 +325,19 @@ button:focus-visible,a:focus-visible,summary:focus-visible{outline:3px solid var
   var days=[].slice.call(document.querySelectorAll('section.day'));
   var tabs=['now','food','taxi','book','pack'];
   var curDay=1;
-  function show(tab,day){
+  // 뒤로가기: 화면 이동·소개창·택시 카드를 기록에 쌓고, 첫 화면에서는 두 번 눌러야 닫힘
+  function hpush(st,h){try{history.pushState(st,'','#'+h)}catch(e){}}
+  function hrep(st,h){try{history.replaceState(st,'','#'+h)}catch(e){}}
+  function curHash(){return (location.hash||'#now').slice(1)}
+  function toast(msg){var t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';t.className='toast';document.body.appendChild(t);}
+    t.textContent=msg;t.classList.add('on');clearTimeout(t._t);t._t=setTimeout(function(){t.classList.remove('on')},2000);}
+  function show(tab,day,nopush){
     tabs.forEach(function(t){document.getElementById(t).hidden=(t!==tab)});
     days.forEach(function(s){s.hidden=!(tab==='day'&&+s.dataset.day===day)});
     if(tab==='day'){curDay=day;store('day',String(day));}
     [].forEach.call(document.querySelectorAll('.dchip'),function(c){c.classList.toggle('on',tab==='day'&&+c.dataset.day===day)});
     [].forEach.call(document.querySelectorAll('.tabbar button'),function(b){b.classList.toggle('on',b.dataset.tab===tab)});
-    var h=tab==='day'?'day-'+day:tab; if(location.hash!=='#'+h){try{history.replaceState(null,'','#'+h)}catch(e){location.hash=h}}
+    var h=tab==='day'?'day-'+day:tab; if(location.hash!=='#'+h){if(nopush)hrep({v:h},h);else hpush({v:h},h);}
     fab.hidden=(tab!=='day');
     if(tab==='day'){var j=jst();markNext(day,(sd.value&&+sd.value===day)?mm(st.value||'09:00'):(j.day===day?j.min:0));}
     window.scrollTo(0,0);
@@ -337,20 +345,20 @@ button:focus-visible,a:focus-visible,summary:focus-visible{outline:3px solid var
   function route(){
     var h=(location.hash||'').slice(1);
     var m=/^day-(\d)$/.exec(h);
-    if(m)show('day',+m[1]); else if(tabs.indexOf(h)>=0)show(h,curDay); else show('now',curDay);
+    if(m)show('day',+m[1],true); else if(tabs.indexOf(h)>=0)show(h,curDay,true); else show('now',curDay,true);
   }
   [].forEach.call(document.querySelectorAll('.tabbar button'),function(b){b.onclick=function(){show(b.dataset.tab,curDay)}});
   [].forEach.call(document.querySelectorAll('.dchip'),function(c){c.onclick=function(){show('day',+c.dataset.day)}});
   [].forEach.call(document.querySelectorAll('[data-go]'),function(b){b.onclick=function(){show(b.dataset.go,curDay)}});
-  window.addEventListener('hashchange',route);
 
   // 택시 카드
   var tv=document.getElementById('taxiView');
   function openTaxi(k){var t=TAXI[k];if(!t)return;document.getElementById('tvName').textContent=t.jp;document.getElementById('tvAddr').textContent=t.addr;
-    document.getElementById('tvTel').textContent=t.tel?('☎ '+t.tel):'';document.getElementById('tvKo').textContent=t.ko;tv.hidden=false;
+    document.getElementById('tvTel').textContent=t.tel?('☎ '+t.tel):'';document.getElementById('tvKo').textContent=t.ko;if(tv.hidden)hpush({ov:'taxi'},curHash());tv.hidden=false;
     try{navigator.wakeLock&&navigator.wakeLock.request('screen').catch(function(){})}catch(e){}}
   document.addEventListener('click',function(e){var b=e.target.closest('[data-taxi]');if(b)openTaxi(b.dataset.taxi)});
-  document.getElementById('tvClose').onclick=function(){tv.hidden=true};
+  function closeTaxi(fromPop){if(tv.hidden)return;tv.hidden=true;if(!fromPop&&history.state&&history.state.ov)history.back();}
+  document.getElementById('tvClose').onclick=function(){closeTaxi()};
 
   // 식당 지역 필터
   [].forEach.call(document.querySelectorAll('.chip'),function(c){c.onclick=function(){
@@ -370,11 +378,12 @@ button:focus-visible,a:focus-visible,summary:focus-visible{outline:3px solid var
       return '<div><b>'+esc(f.label)+'</b><span>'+esc(f.value)+(f.source?'<small>출처: '+esc(f.source)+'</small>':'')+'</span></div>'}).join('')+'</div>';
     if(d.sources&&d.sources.length)h+='<div class="iv-src">자료: '+d.sources.map(function(x){return '<a href="'+esc(x.url)+'" target="_blank" rel="noopener">'+esc(x.title)+'</a>'}).join(' · ')+'</div>';
     h+='<p class="fine">(추정)이라고 쓴 부분은 확인 못 한 내용이에요.</p>';
-    document.getElementById('ivBody').innerHTML=h;iv.hidden=false;iv.scrollTop=0;document.getElementById('ivX').focus();}
-  function closeInfo(){iv.hidden=true;if(ivLast&&ivLast.focus)try{ivLast.focus()}catch(e){}}
+    document.getElementById('ivBody').innerHTML=h;if(iv.hidden)hpush({ov:'info'},curHash());iv.hidden=false;iv.scrollTop=0;document.getElementById('ivX').focus();}
+  function closeInfo(fromPop){if(iv.hidden)return;iv.hidden=true;if(ivLast&&ivLast.focus)try{ivLast.focus()}catch(e){}
+    if(fromPop!==true&&history.state&&history.state.ov)history.back();}
   document.addEventListener('click',function(e){var b=e.target.closest('[data-info]');if(b){e.preventDefault();openInfo(b.dataset.info)}});
-  document.getElementById('ivX').onclick=closeInfo;document.getElementById('ivClose').onclick=closeInfo;
-  document.addEventListener('keydown',function(e){if(e.key==='Escape'){if(!iv.hidden)closeInfo();if(!tv.hidden)tv.hidden=true;}});
+  document.getElementById('ivX').onclick=function(){closeInfo()};document.getElementById('ivClose').onclick=function(){closeInfo()};
+  document.addEventListener('keydown',function(e){if(e.key==='Escape'){if(!iv.hidden)closeInfo();if(!tv.hidden)closeTaxi();}});
 
   // 준비물
   var PK={};try{PK=JSON.parse(store('pack')||'{}')||{}}catch(e){PK={}}
@@ -483,6 +492,19 @@ button:focus-visible,a:focus-visible,summary:focus-visible{outline:3px solid var
   var j0=jst(); curDay=(j0.day>=1&&j0.day<=6)?j0.day:(+store('day')||1);
   applyDone(); renderNow(); setInterval(function(){if(!sd.value)renderNow()},30000);
   route();
+  // 첫 화면 아래에 '닫기 대기' 기록을 하나 깔아 둔다 → 첫 화면에서 뒤로가기 1번은 안내만, 2초 안에 한 번 더 누르면 닫힘
+  var lastRoot=0;
+  (function(){var h=curHash();hrep({root:1},h);hpush({v:h},h);})();
+  window.addEventListener('popstate',function(e){
+    var st=e.state||{};
+    if(!iv.hidden){closeInfo(true);if(!st.ov&&!st.root)return;}
+    if(!tv.hidden){closeTaxi(true);if(!st.ov&&!st.root)return;}
+    if(st.root){var t=Date.now();
+      if(t-lastRoot<2000){history.back();return;}
+      lastRoot=t;toast('뒤로가기를 한 번 더 누르면 길잡이가 닫혀요');hpush({v:curHash()},curHash());return;}
+    if(st.ov){history.back();return;}
+    route();
+  });
 })();
 </script>
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(function(){})}</script>
